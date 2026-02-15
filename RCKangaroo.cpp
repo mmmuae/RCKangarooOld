@@ -56,6 +56,7 @@ bool IsBench;
 std::atomic<u64> gTameCount;
 std::atomic<u64> gWild1Count;
 std::atomic<u64> gWild2Count;
+u64 gStoredDpCount;
 EcInt gLowestGap;
 EcInt gEstimatedKey;
 bool gHasLowestGap;
@@ -644,6 +645,8 @@ void CheckNewPoints()
                         EnqueueDpMeta(fullDist, nrec.type);
 
                 DBRec* pref = (DBRec*)db.FindOrAddDataBlock((u8*)&nrec);
+                if (!pref)
+                        gStoredDpCount++;
                 if (gGenMode)
                         continue;
 		if (pref)
@@ -801,11 +804,14 @@ void ShowStats(u64 tm_start, double exp_ops, double dp_val, u64 total_ops)
 	double count_log2 = 0.0;
 	if (total_ops > 0)
 		count_log2 = log2((double)total_ops);
+	u64 cur_dps_cnt = gStoredDpCount;
 
 	// Use carriage return for sticky progress bar (updates in place)
-	printf("\r[%.2f MK/s][Count 2^%.2f][Dead %u][T/W:%.3f][L.Gap:%s][k_est:%s][%llud:%02dh:%02dm/%llud:%02dh:%02dm]  ",
+	printf("\r[%.2f MK/s][Count 2^%.2f][DPs:%llu/%llu][Dead %u][T/W:%.3f][L.Gap:%s][k_est:%s][%llud:%02dh:%02dm/%llud:%02dh:%02dm]  ",
 		speed_mks,
 		count_log2,
+		(unsigned long long)cur_dps_cnt,
+		(unsigned long long)est_dps_cnt,
 		gTotalErrors,
 		twRatio,
 		gapStr,
@@ -889,25 +895,26 @@ bool SolvePoint(EcPoint PntToSolve, EcInt& RangeWidth, int RangeBits, int DP, Ec
 	PntIndex = 0;
 
 	// Initialize statistics
-        gTameCount.store(0, std::memory_order_relaxed);
-        gWild1Count.store(0, std::memory_order_relaxed);
-        gWild2Count.store(0, std::memory_order_relaxed);
-        {
-                std::lock_guard<std::mutex> lock(gGapMutex);
-                gLowestGap.SetZero();
-                gHasLowestGap = false;
-                gEstimatedKey.SetZero();
-                gHasEstimatedKey = false;
-                gHasGapPair = false;
-        }
-        gTameDistances.clear();
-        gWild1Distances.clear();
-        gWild2Distances.clear();
-        gBestDistanceA.dist.SetZero();
-        gBestDistanceA.type = 0;
-        gBestDistanceB.dist.SetZero();
-        gBestDistanceB.type = 0;
-//prepare jumps
+	gTameCount.store(0, std::memory_order_relaxed);
+	gWild1Count.store(0, std::memory_order_relaxed);
+	gWild2Count.store(0, std::memory_order_relaxed);
+	{
+		std::lock_guard<std::mutex> lock(gGapMutex);
+		gLowestGap.SetZero();
+		gHasLowestGap = false;
+		gEstimatedKey.SetZero();
+		gHasEstimatedKey = false;
+		gHasGapPair = false;
+	}
+	gTameDistances.clear();
+	gWild1Distances.clear();
+	gWild2Distances.clear();
+	gBestDistanceA.dist.SetZero();
+	gBestDistanceA.type = 0;
+	gBestDistanceB.dist.SetZero();
+	gBestDistanceB.type = 0;
+	gStoredDpCount = db.GetBlockCnt();
+	//prepare jumps
         EcInt minjump, t;
         minjump.Set(1);
         minjump.ShiftLeft(RangeBits / 2 + 3);
@@ -1312,6 +1319,7 @@ int main(int argc, char* argv[])
         gMax = 0.0;
         gGenMode = false;
         gIsOpsLimit = false;
+	gStoredDpCount = 0;
 	memset(gGPUs_Mask, 1, sizeof(gGPUs_Mask));
 	if (!ParseCommandLine(argc, argv))
 		return 0;
